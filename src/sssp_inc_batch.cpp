@@ -42,10 +42,14 @@ else  \
 
 int main(int argc, char** argv)
 {
-    assert(argc > 3);
+    if(argc <= 4)
+    {
+        fprintf(stderr, "usage: %s graph root imported_rate batch_size\n", argv[0]);
+        exit(1);
+    }
     std::pair<uint64_t, uint64_t> *raw_edges;
     uint64_t root = std::stoull(argv[2]);
-    uint64_t batch = std::stoull(argv[3]);
+    uint64_t batch = std::stoull(argv[4]);
     uint64_t raw_edges_len;
     std::tie(raw_edges, raw_edges_len) = mmap_binary(argv[1]);
     uint64_t num_vertices = 0;
@@ -64,7 +68,8 @@ int main(int argc, char** argv)
     }
     Graph<uint64_t> graph(num_vertices, raw_edges_len, false, true);
     //std::random_shuffle(raw_edges.begin(), raw_edges.end());
-    uint64_t imported_edges = raw_edges_len*0.9;
+    double imported_rate = std::stod(argv[3]);
+    uint64_t imported_edges = raw_edges_len*imported_rate;
     //uint64_t total_batches = std::min(1000000*batch, 200000000lu);
     //if(raw_edges_len*0.1 > total_batches) imported_edges = raw_edges_len - total_batches; 
     {
@@ -127,14 +132,13 @@ int main(int argc, char** argv)
     auto history_labels = graph.alloc_history_array<uint64_t>();
     auto start = std::chrono::high_resolution_clock::now();
     uint64_t max_batches = 1000000, num_batches = 0;
-    for(uint64_t local_begin=imported_edges;local_begin+batch<=raw_edges_len;local_begin+=batch)
+    std::vector<decltype(graph)::edge_type> added_edges(batch), deled_edges(batch);
+    for(uint64_t local_begin=imported_edges;local_begin<raw_edges_len;local_begin+=batch)
     {
         add_edge_len = 0; del_edge_len = 0;
         add_edge.clear(); del_edge.clear();
         auto local_end = std::min(local_begin+batch, raw_edges_len);
         {
-            static std::vector<decltype(graph)::edge_type> added_edges;
-            added_edges.reserve(local_end - local_begin);
             std::atomic_uint64_t length(0);
             THRESHOLD_OPENMP_LOCAL("omp parallel for", local_end - local_begin, 1024, 
                 for(uint64_t i=local_begin;i<local_end;i++)
@@ -144,18 +148,15 @@ int main(int argc, char** argv)
                     if(!old_num) added_edges[length.fetch_add(1)] = {e.first, e.second, (e.first+e.second)%128};
                 }
             );
-            added_edges.resize(length.load());
             graph.update_tree_add<uint64_t, uint64_t>(
                 continue_reduce_func,
                 update_func,
                 active_result_func,
-                labels, added_edges, true
+                labels, added_edges, length.load(), true
             );
         }
 
         {
-            static std::vector<decltype(graph)::edge_type> deled_edges;
-            deled_edges.reserve(local_end - local_begin);
             std::atomic_uint64_t length(0);
             THRESHOLD_OPENMP_LOCAL("omp parallel for", local_end - local_begin, 1024, 
                 for(uint64_t i=local_begin;i<local_end;i++)
@@ -165,23 +166,87 @@ int main(int argc, char** argv)
                     if(old_num==1) deled_edges[length.fetch_add(1)] = {e.first, e.second, (e.first+e.second)%128};
                 }
             );
-            deled_edges.resize(length.load());
             graph.update_tree_del<uint64_t, uint64_t>(
                 init_label_func,
                 continue_reduce_func,
                 update_func,
                 active_result_func,
                 equal_func,
-                labels, deled_edges, true
+                labels, deled_edges, length.load(), true
             );
         }
 
-        if(++num_batches >= max_batches) break;
+        num_batches ++;
+        // if(num_batches >= max_batches) break;
     }
     auto end = std::chrono::high_resolution_clock::now();
     uint64_t wall_nanoseconds = (end-start).count();
     fprintf(stderr, "wall_times = %lf us\n", (1e-3)*wall_nanoseconds);
     fprintf(stderr, "wall_mean = %lf us\n", (1e-3)*wall_nanoseconds/num_batches);
 
+    {
+        std::vector<std::atomic_uint64_t> layer_counts(MAXL);
+        for(auto &a : layer_counts) a = 0;
+        graph.stream_vertices<uint64_t>(
+            [&](uint64_t vid)
+            {
+                if(labels[vid].data != MAXL)
+                {
+                    layer_counts[labels[vid].data]++;
+                    return 1;
+                }
+                return 0;
+            },
+            graph.get_dense_active_all()
+        );
+        for(uint64_t i=0;i<layer_counts.size();i++)
+        {
+            if(layer_counts[i] > 0)
+            {
+                printf("%lu: %lu, ", i, layer_counts[i].load());
+            }
+        }
+        printf("\n");
+    }
+
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+
+        graph.build_tree<uint64_t, uint64_t>(
+            init_label_func,
+            continue_reduce_print_func,
+            update_func,
+            active_result_func,
+            labels
+        );
+
+        auto end = std::chrono::high_resolution_clock::now();
+        fprintf(stderr, "exec: %.6lfs\n", 1e-6*(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count());
+    }
+
+    {
+        std::vector<std::atomic_uint64_t> layer_counts(MAXL);
+        for(auto &a : layer_counts) a = 0;
+        graph.stream_vertices<uint64_t>(
+            [&](uint64_t vid)
+            {
+                if(labels[vid].data != MAXL)
+                {
+                    layer_counts[labels[vid].data]++;
+                    return 1;
+                }
+                return 0;
+            },
+            graph.get_dense_active_all()
+        );
+        for(uint64_t i=0;i<layer_counts.size();i++)
+        {
+            if(layer_counts[i] > 0)
+            {
+                printf("%lu: %lu, ", i, layer_counts[i].load());
+            }
+        }
+        printf("\n");
+    }
     return 0;
 }

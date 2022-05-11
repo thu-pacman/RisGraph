@@ -32,7 +32,11 @@
 
 int main(int argc, char** argv)
 {
-    assert(argc > 2);
+    if(argc <= 3)
+    {
+        fprintf(stderr, "usage: %s graph root imported_rate\n", argv[0]);
+        exit(1);
+    }
     std::pair<uint64_t, uint64_t> *raw_edges;
     uint64_t root = std::stoull(argv[2]);
     uint64_t raw_edges_len;
@@ -53,7 +57,8 @@ int main(int argc, char** argv)
     }
     Graph<uint64_t> graph(num_vertices, raw_edges_len, false, true);
     //std::random_shuffle(raw_edges.begin(), raw_edges.end());
-    uint64_t imported_edges = raw_edges_len*0.5;
+    double imported_rate = std::stod(argv[3]);
+    uint64_t imported_edges = raw_edges_len*imported_rate;
     {
         auto start = std::chrono::system_clock::now();
         #pragma omp parallel for

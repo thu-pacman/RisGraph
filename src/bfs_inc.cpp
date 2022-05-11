@@ -29,7 +29,11 @@
 
 int main(int argc, char** argv)
 {
-    assert(argc > 2);
+    if(argc <= 3)
+    {
+        fprintf(stderr, "usage: %s graph root imported_rate\n", argv[0]);
+        exit(1);
+    }
     std::pair<uint64_t, uint64_t> *raw_edges;
     uint64_t root = std::stoull(argv[2]);
     uint64_t raw_edges_len;
@@ -50,7 +54,8 @@ int main(int argc, char** argv)
     }
     Graph<void> graph(num_vertices, raw_edges_len, false, true);
     //std::random_shuffle(raw_edges.begin(), raw_edges.end());
-    uint64_t imported_edges = raw_edges_len*0.5;
+    double imported_rate = std::stod(argv[3]);
+    uint64_t imported_edges = raw_edges_len*imported_rate;
     {
         auto start = std::chrono::system_clock::now();
         #pragma omp parallel for
@@ -242,5 +247,49 @@ int main(int argc, char** argv)
         }
     }
 
+    {
+        auto start = std::chrono::system_clock::now();
+
+        graph.build_tree<uint64_t, uint64_t>(
+            init_label_func,
+            continue_reduce_func,
+            update_func,
+            active_result_func,
+            labels
+        );
+
+        auto end = std::chrono::system_clock::now();
+        fprintf(stderr, "exec: %.6lfs\n", 1e-6*(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count());
+    }
+
+    {
+        std::vector<std::atomic_uint64_t> layer_counts(MAXL);
+        for(auto &a : layer_counts) a = 0;
+        auto num_visited = graph.stream_vertices<uint64_t>(
+            [&](uint64_t vid)
+            {
+                if(labels[vid].data != MAXL)
+                {
+                    layer_counts[labels[vid].data]++;
+                    return 1;
+                }
+                return 0;
+            },
+            graph.get_dense_active_all()
+        );
+        fprintf(stderr, "%lu visited vertices: %lu\n", root, num_visited);
+        for(uint64_t i=0;i<layer_counts.size();i++)
+        {
+            if(layer_counts[i] > 0)
+            {
+                printf("%lu ", layer_counts[i].load());
+            }
+            else
+            {
+                printf("\n");
+                break;
+            }
+        }
+    }
     return 0;
 }

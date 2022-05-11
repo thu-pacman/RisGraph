@@ -90,6 +90,8 @@ int main(int argc, char** argv)
         return {vid==root?0:MAXL, vid==root};
     };
     {
+        auto start = std::chrono::system_clock::now();
+
         graph.build_tree<uint64_t, uint64_t>(
             init_label_func,
             continue_reduce_print_func,
@@ -97,68 +99,11 @@ int main(int argc, char** argv)
             active_result_func,
             labels
         );
+
+        auto end = std::chrono::system_clock::now();
+        fprintf(stderr, "exec: %.6lfs\n", 1e-6*(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count());
     }
 
-    //for(uint64_t i=imported_edges;i<raw_edges_len;i++)
-    //{
-    //    if((i-imported_edges)%10000 == 0)
-    //    {
-    //        graph.get_dense_active_in().clear();
-    //        graph.get_dense_active_in().set_bit(root);
-
-    //        graph.stream_vertices<uint64_t>(
-    //            [&](uint64_t vid)
-    //            {
-    //                labels[vid].data = init_label_func(vid);
-    //                return 1;
-    //            },
-    //            graph.get_dense_active_all()
-    //        );
-    //        labels[root].data = 0;
-
-    //        graph.build_tree<uint64_t, uint64_t>(
-    //            continue_reduce_func,
-    //            update_func,
-    //            active_result_func,
-    //            labels
-    //        );
-
-    //        std::vector<std::atomic_uint64_t> layer_counts(MAXL);
-    //        for(auto &a : layer_counts) a = 0;
-    //        graph.stream_vertices<uint64_t>(
-    //            [&](uint64_t vid)
-    //            {
-    //                if(labels[vid].data != MAXL)
-    //                {
-    //                    layer_counts[labels[vid].data]++;
-    //                    return 1;
-    //                }
-    //                return 0;
-    //            },
-    //            graph.get_dense_active_all()
-    //        );
-    //        for(uint64_t i=0;i<layer_counts.size();i++)
-    //        {
-    //            if(layer_counts[i] > 0)
-    //            {
-    //                printf("%lu ", layer_counts[i].load());
-    //            }
-    //            else
-    //            {
-    //                printf("\n");
-    //                break;
-    //            }
-    //        }
-    //    }
-    //    {
-    //        const auto &e = raw_edges[i];
-    //        graph.add_edge({e.first, e.second}, true);
-    //    }
-    //    {
-    //        const auto &e = raw_edges[i-imported_edges];
-    //        graph.del_edge({e.first, e.second}, true);
-    //    }
-    //}
     {
         std::vector<std::atomic_uint64_t> layer_counts(MAXL);
         for(auto &a : layer_counts) a = 0;

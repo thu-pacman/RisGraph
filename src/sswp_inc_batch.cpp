@@ -66,7 +66,7 @@ int main(int argc, char** argv)
         fprintf(stderr, "read: %.6lfs\n", 1e-6*(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count());
         fprintf(stderr, "|E|=%lu\n", raw_edges_len);
     }
-    Graph<void> graph(num_vertices, raw_edges_len, false, true);
+    Graph<uint64_t> graph(num_vertices, raw_edges_len, false, true);
     //std::random_shuffle(raw_edges.begin(), raw_edges.end());
     double imported_rate = std::stod(argv[3]);
     uint64_t imported_edges = raw_edges_len*imported_rate;
@@ -78,14 +78,14 @@ int main(int argc, char** argv)
         for(uint64_t i=0;i<imported_edges;i++)
         {
             const auto &e = raw_edges[i];
-            graph.add_edge({e.first, e.second}, true);
+            graph.add_edge({e.first, e.second, (e.first+e.second)%128}, true);
         }
         auto end = std::chrono::high_resolution_clock::now();
         fprintf(stderr, "add: %.6lfs\n", 1e-6*(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count());
     }
 
     auto labels = graph.alloc_vertex_tree_array<uint64_t>();
-    const uint64_t MAXL = 65536;
+    const uint64_t MAXL = 134217728;
     auto continue_reduce_func = [](uint64_t depth, uint64_t total_result, uint64_t local_result) -> std::pair<bool, uint64_t>
     {
         return std::make_pair(local_result>0, total_result+local_result);
@@ -97,7 +97,7 @@ int main(int argc, char** argv)
     };
     auto update_func = [](uint64_t src, uint64_t dst, uint64_t src_data, uint64_t dst_data, decltype(graph)::adjedge_type adjedge) -> std::pair<bool, uint64_t>
     {
-        return std::make_pair(src_data+1 < dst_data, src_data + 1);
+        return std::make_pair(std::min(src_data, adjedge.data) > dst_data, std::min(src_data, adjedge.data));
     };
     auto active_result_func = [](uint64_t old_result, uint64_t src, uint64_t dst, uint64_t src_data, uint64_t old_dst_data, uint64_t new_dst_data) -> uint64_t
     {
@@ -105,11 +105,11 @@ int main(int argc, char** argv)
     };
     auto equal_func = [](uint64_t src, uint64_t dst, uint64_t src_data, uint64_t dst_data, decltype(graph)::adjedge_type adjedge) -> bool
     {
-        return src_data + 1 == dst_data;
+        return std::min(src_data, adjedge.data) == dst_data;
     };
     auto init_label_func = [=](uint64_t vid) -> std::pair<uint64_t, bool>
     {
-        return {vid==root?0:MAXL, vid==root};
+        return {vid==root?MAXL:0, vid==root};
     };
 
     {
@@ -138,15 +138,14 @@ int main(int argc, char** argv)
         add_edge_len = 0; del_edge_len = 0;
         add_edge.clear(); del_edge.clear();
         auto local_end = std::min(local_begin+batch, raw_edges_len);
-
         {
             std::atomic_uint64_t length(0);
             THRESHOLD_OPENMP_LOCAL("omp parallel for", local_end - local_begin, 1024, 
                 for(uint64_t i=local_begin;i<local_end;i++)
                 {
                     const auto &e = raw_edges[i];
-                    auto old_num = graph.add_edge({e.first, e.second}, true);
-                    if(!old_num) added_edges[length.fetch_add(1)] = {e.first, e.second};
+                    auto old_num = graph.add_edge({e.first, e.second, (e.first+e.second)%128}, true);
+                    if(!old_num) added_edges[length.fetch_add(1)] = {e.first, e.second, (e.first+e.second)%128};
                 }
             );
             graph.update_tree_add<uint64_t, uint64_t>(
@@ -163,8 +162,8 @@ int main(int argc, char** argv)
                 for(uint64_t i=local_begin;i<local_end;i++)
                 {   
                     const auto &e = raw_edges[i-imported_edges];
-                    auto old_num = graph.del_edge({e.first, e.second}, true);
-                    if(old_num==1) deled_edges[length.fetch_add(1)] = {e.first, e.second};
+                    auto old_num = graph.del_edge({e.first, e.second, (e.first+e.second)%128}, true);
+                    if(old_num==1) deled_edges[length.fetch_add(1)] = {e.first, e.second, (e.first+e.second)%128};
                 }
             );
             graph.update_tree_del<uint64_t, uint64_t>(
@@ -188,7 +187,7 @@ int main(int argc, char** argv)
     {
         std::vector<std::atomic_uint64_t> layer_counts(MAXL);
         for(auto &a : layer_counts) a = 0;
-        auto num_visited = graph.stream_vertices<uint64_t>(
+        graph.stream_vertices<uint64_t>(
             [&](uint64_t vid)
             {
                 if(labels[vid].data != MAXL)
@@ -200,19 +199,14 @@ int main(int argc, char** argv)
             },
             graph.get_dense_active_all()
         );
-        fprintf(stderr, "%lu visited vertices: %lu\n", root, num_visited);
         for(uint64_t i=0;i<layer_counts.size();i++)
         {
             if(layer_counts[i] > 0)
             {
-                printf("%lu ", layer_counts[i].load());
-            }
-            else
-            {
-                printf("\n");
-                break;
+                printf("%lu: %lu, ", i, layer_counts[i].load());
             }
         }
+        printf("\n");
     }
 
     {
@@ -233,7 +227,7 @@ int main(int argc, char** argv)
     {
         std::vector<std::atomic_uint64_t> layer_counts(MAXL);
         for(auto &a : layer_counts) a = 0;
-        auto num_visited = graph.stream_vertices<uint64_t>(
+        graph.stream_vertices<uint64_t>(
             [&](uint64_t vid)
             {
                 if(labels[vid].data != MAXL)
@@ -245,19 +239,14 @@ int main(int argc, char** argv)
             },
             graph.get_dense_active_all()
         );
-        fprintf(stderr, "%lu visited vertices: %lu\n", root, num_visited);
         for(uint64_t i=0;i<layer_counts.size();i++)
         {
             if(layer_counts[i] > 0)
             {
-                printf("%lu ", layer_counts[i].load());
-            }
-            else
-            {
-                printf("\n");
-                break;
+                printf("%lu: %lu, ", i, layer_counts[i].load());
             }
         }
+        printf("\n");
     }
     return 0;
 }

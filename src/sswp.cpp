@@ -91,6 +91,8 @@ int main(int argc, char** argv)
     };
 
     {
+        auto start = std::chrono::system_clock::now();
+
         graph.build_tree<uint64_t, uint64_t>(
             init_label_func,
             continue_reduce_print_func,
@@ -98,6 +100,9 @@ int main(int argc, char** argv)
             active_result_func,
             labels
         );
+
+        auto end = std::chrono::system_clock::now();
+        fprintf(stderr, "exec: %.6lfs\n", 1e-6*(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count());
     }
 
     {

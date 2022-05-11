@@ -111,9 +111,9 @@ int main(int argc, char** argv)
         fprintf(stderr, "number of communities: %lu\n", num_wcces);
     }
 
-    for(uint64_t i=0;i<num_vertices;i++)
-    {
-        printf("%lu %lu\n", i, labels[i].data);
-    }
+    // for(uint64_t i=0;i<num_vertices;i++)
+    // {
+    //     printf("%lu %lu\n", i, labels[i].data);
+    // }
     return 0;
 }

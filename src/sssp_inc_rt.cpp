@@ -31,18 +31,18 @@
 
 int main(int argc, char** argv)
 {
-    if(argc <= 5)
+    if(argc <= 6)
     {
-        fprintf(stderr, "usage: %s graph root timeout_ms percent clients", argv[0]);
+        fprintf(stderr, "usage: %s graph root imported_rate timeout_ms percent clients\n", argv[0]);
         exit(1);
     }
     std::pair<uint64_t, uint64_t> *raw_edges;
     uint64_t raw_edges_len;
     std::tie(raw_edges, raw_edges_len) = mmap_binary(argv[1]);
     uint64_t root = std::stoull(argv[2]);
-    const uint32_t timeout_ms = std::stoi(argv[3]);
-    const double target_timeout_rate = 1-std::stod(argv[4]);
-    const uint64_t clients = std::stoull(argv[5]);
+    const uint32_t timeout_ms = std::stoi(argv[4]);
+    const double target_timeout_rate = 1-std::stod(argv[5]);
+    const uint64_t clients = std::stoull(argv[6]);
     uint64_t num_vertices = 0;
     {
         auto start = std::chrono::system_clock::now();
@@ -59,7 +59,8 @@ int main(int argc, char** argv)
     }
     Graph<uint64_t> graph(num_vertices, raw_edges_len, false, true, true);
     //std::random_shuffle(raw_edges.begin(), raw_edges.end());
-    uint64_t imported_edges = raw_edges_len*0.9;
+    double imported_rate = std::stod(argv[3]);
+    uint64_t imported_edges = raw_edges_len*imported_rate;
     {
         auto start = std::chrono::system_clock::now();
         #pragma omp parallel for

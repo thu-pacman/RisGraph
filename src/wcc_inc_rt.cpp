@@ -31,17 +31,17 @@
 
 int main(int argc, char** argv)
 {
-    if(argc <= 4)
+    if(argc <= 5)
     {
-        fprintf(stderr, "usage: %s graph timeout_ms percent clients", argv[0]);
+        fprintf(stderr, "usage: %s graph imported_rate timeout_ms percent clients\n", argv[0]);
         exit(1);
     }
     std::pair<uint64_t, uint64_t> *raw_edges;
     uint64_t raw_edges_len;
     std::tie(raw_edges, raw_edges_len) = mmap_binary(argv[1]);
-    const uint32_t timeout_ms = std::stoi(argv[2]);
-    const double target_timeout_rate = 1-std::stod(argv[3]);
-    const uint64_t clients = std::stoull(argv[4]);
+    const uint32_t timeout_ms = std::stoi(argv[3]);
+    const double target_timeout_rate = 1-std::stod(argv[4]);
+    const uint64_t clients = std::stoull(argv[5]);
     uint64_t num_vertices = 0;
     {
         auto start = std::chrono::system_clock::now();
@@ -58,7 +58,8 @@ int main(int argc, char** argv)
     }
     Graph<void> graph(num_vertices, raw_edges_len, true, false, true);
     //std::random_shuffle(raw_edges.begin(), raw_edges.end());
-    uint64_t imported_edges = raw_edges_len*0.9;
+    double imported_rate = std::stod(argv[2]);
+    uint64_t imported_edges = raw_edges_len*imported_rate;
     {
         auto start = std::chrono::system_clock::now();
         #pragma omp parallel for
@@ -445,6 +446,32 @@ int main(int argc, char** argv)
         fprintf(stderr, "P9999999:   %lfus\n", 1e-3*latency[latency.size()*0.9999999]);
         fprintf(stderr, "P99999999:  %lfus\n", 1e-3*latency[latency.size()*0.99999999]);
         fprintf(stderr, "Max:        %lfus\n", 1e-3*latency[latency.size()-1]);
+    }
+
+    {
+        auto num_wcces = graph.stream_vertices<uint64_t>(
+            [&](uint64_t vid)
+            {
+                return labels[vid].data == vid;
+            },
+            graph.get_dense_active_all()
+        );
+        fprintf(stderr, "number of communities: %lu\n", num_wcces);
+    }
+
+    {
+        auto start = std::chrono::system_clock::now();
+
+        graph.build_tree<uint64_t, uint64_t>(
+            init_label_func,
+            continue_reduce_print_func,
+            update_func,
+            active_result_func,
+            labels
+        );
+
+        auto end = std::chrono::system_clock::now();
+        fprintf(stderr, "exec: %.6lfs\n", 1e-6*(uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(end-start).count());
     }
 
     {

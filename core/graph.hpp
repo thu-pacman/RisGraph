@@ -1164,12 +1164,12 @@ public:
             ContinueReduceFunc continue_reduce_func, 
             UpdateFunc update_func, 
             ActiveResultFunc active_result_func, 
-            std::vector<VertexTree<DataType>> &labels, const std::vector<edge_type> &edges, bool directed = true)
+            std::vector<VertexTree<DataType>> &labels, const std::vector<edge_type> &edges, const uint64_t &length, bool directed = true)
     {
         R total_result = 0;
-        if(edges.size() == 1)
+        if(length == 1)
         {
-            for(uint64_t i=0;i<edges.size();i++)
+            for(uint64_t i=0;i<length;i++)
             {
                 auto edge = edges[i];
                 total_result = update_tree_add<R>(continue_reduce_func, update_func, active_result_func, labels, edge, directed);
@@ -1178,8 +1178,8 @@ public:
         }
 
         active_in.clear();
-        THRESHOLD_OPENMP("omp parallel for", edges.size(), 
-            for(uint64_t i=0;i<edges.size();i++)
+        THRESHOLD_OPENMP("omp parallel for", length, 
+            for(uint64_t i=0;i<length;i++)
             {
                 auto edge = edges[i];
                 if(update_func(edge.src, edge.dst, labels[edge.src].data, labels[edge.dst].data, edge).first) 
@@ -1662,12 +1662,12 @@ public:
             UpdateFunc update_func, 
             ActiveResultFunc active_result_func, 
             EqualFunc equal_func, 
-            std::vector<VertexTree<DataType>> &labels, const std::vector<edge_type> &edges, bool directed = true)
+            std::vector<VertexTree<DataType>> &labels, const std::vector<edge_type> &edges, const uint64_t &length, bool directed = true)
     {
         R total_result = 0;
-        if(edges.size() == 1)
+        if(length == 1)
         {
-            for(uint64_t i=0;i<edges.size();i++)
+            for(uint64_t i=0;i<length;i++)
             {
                 auto edge = edges[i];
                 total_result = update_tree_del<R>(init_label_func, continue_reduce_func, update_func, active_result_func, equal_func, labels, edge, directed);
@@ -1678,8 +1678,8 @@ public:
         active_in.clear();
         active_tree.clear();
         invalidated_idx++;
-        THRESHOLD_OPENMP("omp parallel for", edges.size(), 
-            for(uint64_t i=0;i<edges.size();i++)
+        THRESHOLD_OPENMP("omp parallel for", length, 
+            for(uint64_t i=0;i<length;i++)
             {
                 auto edge = edges[i];
                 {
